@@ -1,0 +1,29 @@
+# Dependencies
+/vendor/
+/node_modules/
+composer.lock
+
+# Build / dist artifacts
+/build/
+/dist/
+*.zip
+
+# PHP tooling caches
+.phpunit.result.cache
+.phpcs.cache
+/.phpcs/
+
+# Editor / OS cruft
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs / env
+*.log
+.env
