@@ -101,15 +101,15 @@ final class Mercaria_WC_Plugin {
 	/**
 	 * Get the merged settings with defaults.
 	 *
-	 * @return array{api_base_url:string, store_id:string, access_token:string}
+	 * @return array{api_base_url:string, connection_id:string, channel_key:string}
 	 */
 	public function get_settings() {
 		return wp_parse_args(
 			get_option( self::SETTINGS_OPTION, array() ),
 			array(
-				'api_base_url' => '',
-				'store_id'     => '',
-				'access_token' => '',
+				'api_base_url'  => '',
+				'connection_id' => '',
+				'channel_key'   => '',
 			)
 		);
 	}
@@ -132,33 +132,29 @@ final class Mercaria_WC_Plugin {
 	public function get_client() {
 		$settings = $this->get_settings();
 
-		if ( '' === $settings['api_base_url'] || '' === $settings['store_id'] || '' === $settings['access_token'] ) {
+		if ( '' === $settings['api_base_url'] || '' === $settings['connection_id'] || '' === $settings['channel_key'] ) {
 			return null;
 		}
 
-		$connection    = $this->get_connection();
-		$connection_id = isset( $connection['connection_id'] ) ? (string) $connection['connection_id'] : '';
-
 		return new Mercaria_WC_Client(
 			$settings['api_base_url'],
-			$settings['store_id'],
-			$settings['access_token'],
-			$connection_id
+			$settings['connection_id'],
+			$settings['channel_key']
 		);
 	}
 
 	/**
-	 * Whether the plugin is fully configured AND has an established connection.
+	 * Whether the plugin is fully configured to push to Mercaria.
+	 *
+	 * The Channel API Key is long-lived and the connection id is supplied
+	 * directly, so "connected" simply means fully configured — there is no
+	 * handshake to establish. A wrong or revoked key surfaces as a logged push
+	 * error and via the Test connection action, not here.
 	 *
 	 * @return bool
 	 */
 	public function is_connected() {
-		if ( null === $this->get_client() ) {
-			return false;
-		}
-
-		$connection = $this->get_connection();
-		return ! empty( $connection['connection_id'] );
+		return null !== $this->get_client();
 	}
 
 	/**
@@ -198,9 +194,9 @@ final class Mercaria_WC_Plugin {
 		add_option(
 			self::SETTINGS_OPTION,
 			array(
-				'api_base_url' => 'https://api.mercaria.co',
-				'store_id'     => '',
-				'access_token' => '',
+				'api_base_url'  => 'https://api.mercaria.co',
+				'connection_id' => '',
+				'channel_key'   => '',
 			),
 			'',
 			'no'

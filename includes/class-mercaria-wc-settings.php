@@ -2,10 +2,10 @@
 /**
  * Admin settings page (Settings -> Mercaria).
  *
- * Provides the configuration form (API base URL, store id, access token), the
- * Connect / Test / Disconnect actions, the "Sync all products now" backfill
- * trigger, and the activity log. Every state-changing action is guarded by a
- * nonce and the `manage_woocommerce` capability.
+ * Provides the configuration form (API base URL, connection id, Channel API Key),
+ * a Test connection action, the "Sync all products now" backfill trigger, a
+ * Disconnect action, and the activity log. Every state-changing action is guarded
+ * by a nonce and the `manage_woocommerce` capability.
  *
  * @package Mercaria_WooCommerce
  */
@@ -30,7 +30,6 @@ class Mercaria_WC_Settings {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 
-		add_action( 'admin_post_mercaria_wc_connect', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_mercaria_wc_test', array( $this, 'handle_test' ) );
 		add_action( 'admin_post_mercaria_wc_disconnect', array( $this, 'handle_disconnect' ) );
 		add_action( 'admin_post_mercaria_wc_sync_all', array( $this, 'handle_sync_all' ) );
@@ -85,27 +84,27 @@ class Mercaria_WC_Settings {
 		);
 
 		add_settings_field(
-			'store_id',
-			__( 'Store id', 'mercaria-woocommerce' ),
-			array( $this, 'render_field_store_id' ),
+			'connection_id',
+			__( 'Connection id', 'mercaria-woocommerce' ),
+			array( $this, 'render_field_connection_id' ),
 			self::MENU_SLUG,
 			'mercaria_wc_connection_section'
 		);
 
 		add_settings_field(
-			'access_token',
-			__( 'Access token', 'mercaria-woocommerce' ),
-			array( $this, 'render_field_access_token' ),
+			'channel_key',
+			__( 'Channel API Key', 'mercaria-woocommerce' ),
+			array( $this, 'render_field_channel_key' ),
 			self::MENU_SLUG,
 			'mercaria_wc_connection_section'
 		);
 	}
 
 	/**
-	 * Sanitize the settings, preserving the stored token when left blank.
+	 * Sanitize the settings, preserving the stored key when left blank.
 	 *
 	 * @param array<string, mixed> $input Raw submitted values.
-	 * @return array{api_base_url:string, store_id:string, access_token:string}
+	 * @return array{api_base_url:string, connection_id:string, channel_key:string}
 	 */
 	public function sanitize_settings( $input ) {
 		$existing = Mercaria_WC_Plugin::instance()->get_settings();
@@ -114,13 +113,13 @@ class Mercaria_WC_Settings {
 		$base                  = isset( $input['api_base_url'] ) ? trim( (string) $input['api_base_url'] ) : '';
 		$clean['api_base_url'] = '' === $base ? '' : esc_url_raw( $base, array( 'http', 'https' ) );
 
-		$clean['store_id'] = isset( $input['store_id'] ) ? sanitize_text_field( $input['store_id'] ) : '';
+		$clean['connection_id'] = isset( $input['connection_id'] ) ? sanitize_text_field( $input['connection_id'] ) : '';
 
-		$token = isset( $input['access_token'] ) ? trim( (string) $input['access_token'] ) : '';
-		if ( '' === $token ) {
-			$clean['access_token'] = isset( $existing['access_token'] ) ? $existing['access_token'] : '';
+		$key = isset( $input['channel_key'] ) ? trim( (string) $input['channel_key'] ) : '';
+		if ( '' === $key ) {
+			$clean['channel_key'] = isset( $existing['channel_key'] ) ? $existing['channel_key'] : '';
 		} else {
-			$clean['access_token'] = sanitize_text_field( $token );
+			$clean['channel_key'] = sanitize_text_field( $key );
 		}
 
 		return $clean;
@@ -133,7 +132,7 @@ class Mercaria_WC_Settings {
 	 */
 	public function render_section_intro() {
 		echo '<p>';
-		echo esc_html__( 'Connect this WooCommerce store to your Mercaria marketplace store. Paste a store-scoped Mercaria access token, then click Connect.', 'mercaria-woocommerce' );
+		echo esc_html__( 'Connect this WooCommerce store to your Mercaria marketplace store. In the Mercaria dashboard open your WooCommerce channel, copy its Connection id and generate a Channel API Key, then paste both below and click Test connection.', 'mercaria-woocommerce' );
 		echo '</p>';
 	}
 
@@ -153,38 +152,38 @@ class Mercaria_WC_Settings {
 	}
 
 	/**
-	 * Render the store id field.
+	 * Render the connection id field.
 	 *
 	 * @return void
 	 */
-	public function render_field_store_id() {
+	public function render_field_connection_id() {
 		$settings = Mercaria_WC_Plugin::instance()->get_settings();
 		printf(
-			'<input type="text" class="regular-text code" name="%1$s[store_id]" value="%2$s" />',
+			'<input type="text" class="regular-text code" name="%1$s[connection_id]" value="%2$s" autocomplete="off" />',
 			esc_attr( Mercaria_WC_Plugin::SETTINGS_OPTION ),
-			esc_attr( $settings['store_id'] )
+			esc_attr( $settings['connection_id'] )
 		);
-		echo '<p class="description">' . esc_html__( 'Your Mercaria store id.', 'mercaria-woocommerce' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'The channel connection id shown on your WooCommerce channel in the Mercaria dashboard.', 'mercaria-woocommerce' ) . '</p>';
 	}
 
 	/**
-	 * Render the access token field (masked; blank keeps the stored value).
+	 * Render the Channel API Key field (masked; blank keeps the stored value).
 	 *
 	 * @return void
 	 */
-	public function render_field_access_token() {
-		$settings  = Mercaria_WC_Plugin::instance()->get_settings();
-		$has_token = '' !== $settings['access_token'];
+	public function render_field_channel_key() {
+		$settings = Mercaria_WC_Plugin::instance()->get_settings();
+		$has_key  = '' !== $settings['channel_key'];
 		printf(
-			'<input type="password" class="regular-text code" name="%1$s[access_token]" value="" autocomplete="off" placeholder="%2$s" />',
+			'<input type="password" class="regular-text code" name="%1$s[channel_key]" value="" autocomplete="off" placeholder="%2$s" />',
 			esc_attr( Mercaria_WC_Plugin::SETTINGS_OPTION ),
 			esc_attr(
-				$has_token
-					? __( 'A token is saved — leave blank to keep it', 'mercaria-woocommerce' )
-					: __( 'Paste your store-scoped token', 'mercaria-woocommerce' )
+				$has_key
+					? __( 'A key is saved — leave blank to keep it', 'mercaria-woocommerce' )
+					: __( 'Paste your Channel API Key (mck_…)', 'mercaria-woocommerce' )
 			)
 		);
-		echo '<p class="description">' . esc_html__( 'A store-scoped Mercaria access token with the channels:write scope. Stored securely; never displayed after saving.', 'mercaria-woocommerce' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'A long-lived Channel API Key (mck_…) generated in the Mercaria dashboard. It does not expire; revoke it in the dashboard to cut off access. Stored securely; never displayed after saving.', 'mercaria-woocommerce' ) . '</p>';
 	}
 
 	/**
@@ -198,9 +197,10 @@ class Mercaria_WC_Settings {
 		}
 
 		$plugin     = Mercaria_WC_Plugin::instance();
+		$settings   = $plugin->get_settings();
 		$connection = $plugin->get_connection();
-		$connected  = $plugin->is_connected();
 		$configured = null !== $plugin->get_client();
+		$connected  = $plugin->is_connected();
 		$backfill   = get_option( Mercaria_WC_Plugin::BACKFILL_OPTION, array() );
 		?>
 		<div class="wrap">
@@ -224,29 +224,33 @@ class Mercaria_WC_Settings {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Status', 'mercaria-woocommerce' ); ?></th>
 						<td>
-							<?php if ( $connected ) : ?>
-								<span style="color:#008a20;font-weight:600">&#10003; <?php esc_html_e( 'Connected', 'mercaria-woocommerce' ); ?></span>
+							<?php if ( $configured ) : ?>
+								<span style="color:#008a20;font-weight:600">&#10003; <?php esc_html_e( 'Configured', 'mercaria-woocommerce' ); ?></span>
 							<?php else : ?>
-								<span style="color:#b32d2e;font-weight:600"><?php esc_html_e( 'Not connected', 'mercaria-woocommerce' ); ?></span>
+								<span style="color:#b32d2e;font-weight:600"><?php esc_html_e( 'Not configured', 'mercaria-woocommerce' ); ?></span>
 							<?php endif; ?>
 						</td>
 					</tr>
-					<?php if ( ! empty( $connection['connection_id'] ) ) : ?>
+					<?php if ( '' !== $settings['connection_id'] ) : ?>
 						<tr>
 							<th scope="row"><?php esc_html_e( 'Connection id', 'mercaria-woocommerce' ); ?></th>
-							<td><code><?php echo esc_html( $connection['connection_id'] ); ?></code></td>
+							<td><code><?php echo esc_html( $settings['connection_id'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
-					<?php if ( ! empty( $connection['shop_domain'] ) ) : ?>
+					<?php if ( ! empty( $connection['tested_at'] ) ) : ?>
 						<tr>
-							<th scope="row"><?php esc_html_e( 'Shop domain', 'mercaria-woocommerce' ); ?></th>
-							<td><code><?php echo esc_html( $connection['shop_domain'] ); ?></code></td>
-						</tr>
-					<?php endif; ?>
-					<?php if ( ! empty( $connection['connected_at'] ) ) : ?>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Connected at', 'mercaria-woocommerce' ); ?></th>
-							<td><?php echo esc_html( $this->format_time( (int) $connection['connected_at'] ) ); ?></td>
+							<th scope="row"><?php esc_html_e( 'Last test', 'mercaria-woocommerce' ); ?></th>
+							<td>
+								<?php
+								$ok = isset( $connection['status'] ) && 'connected' === $connection['status'];
+								printf(
+									'<span style="color:%1$s;font-weight:600">%2$s</span> — %3$s',
+									esc_attr( $ok ? '#008a20' : '#b32d2e' ),
+									esc_html( $ok ? __( 'Succeeded', 'mercaria-woocommerce' ) : __( 'Failed', 'mercaria-woocommerce' ) ),
+									esc_html( $this->format_time( (int) $connection['tested_at'] ) )
+								);
+								?>
+							</td>
 						</tr>
 					<?php endif; ?>
 					<tr>
@@ -257,9 +261,8 @@ class Mercaria_WC_Settings {
 			</table>
 
 			<p>
-				<?php $this->render_action_button( 'mercaria_wc_connect', $connected ? __( 'Reconnect', 'mercaria-woocommerce' ) : __( 'Connect', 'mercaria-woocommerce' ), 'button button-primary', ! $configured ); ?>
-				<?php $this->render_action_button( 'mercaria_wc_test', __( 'Test connection', 'mercaria-woocommerce' ), 'button', ! $configured ); ?>
-				<?php if ( $connected ) : ?>
+				<?php $this->render_action_button( 'mercaria_wc_test', __( 'Test connection', 'mercaria-woocommerce' ), 'button button-primary', ! $configured ); ?>
+				<?php if ( $configured ) : ?>
 					<?php $this->render_action_button( 'mercaria_wc_disconnect', __( 'Disconnect', 'mercaria-woocommerce' ), 'button button-link-delete', false ); ?>
 				<?php endif; ?>
 			</p>
@@ -388,70 +391,61 @@ class Mercaria_WC_Settings {
 	}
 
 	/**
-	 * Handle the Connect action.
-	 *
-	 * @return void
-	 */
-	public function handle_connect() {
-		$this->authorize( 'mercaria_wc_connect' );
-		$this->connect_and_store( 'connected' );
-	}
-
-	/**
 	 * Handle the Test connection action.
 	 *
 	 * @return void
 	 */
 	public function handle_test() {
 		$this->authorize( 'mercaria_wc_test' );
-		$this->connect_and_store( 'test_ok' );
-	}
 
-	/**
-	 * Shared connect implementation used by Connect and Test.
-	 *
-	 * The caller is responsible for capability + nonce verification.
-	 *
-	 * @param string $success_code Notice code on success.
-	 * @return void
-	 */
-	private function connect_and_store( $success_code ) {
 		$client = Mercaria_WC_Plugin::instance()->get_client();
 		if ( null === $client ) {
 			$this->redirect( 'not_configured' );
 		}
 
-		$shop_domain = wp_parse_url( home_url(), PHP_URL_HOST );
-		$result      = $client->connect_push( (string) $shop_domain );
+		$result = $client->test_connection();
 
 		if ( is_wp_error( $result ) ) {
-			$this->redirect( 'connect_failed', $result->get_error_message() );
+			update_option(
+				Mercaria_WC_Plugin::CONNECTION_OPTION,
+				array(
+					'status'    => 'error',
+					'tested_at' => time(),
+					'message'   => $result->get_error_message(),
+				),
+				false
+			);
+			$this->redirect( 'test_failed', $result->get_error_message() );
 		}
 
 		update_option(
 			Mercaria_WC_Plugin::CONNECTION_OPTION,
 			array(
-				'connection_id' => (string) $result['connectionId'],
-				'store_id'      => isset( $result['storeId'] ) ? (string) $result['storeId'] : Mercaria_WC_Plugin::instance()->get_settings()['store_id'],
-				'shop_domain'   => (string) $shop_domain,
-				'status'        => 'connected',
-				'connected_at'  => time(),
+				'status'    => 'connected',
+				'tested_at' => time(),
 			),
 			false
 		);
 
-		Mercaria_WC_Logger::log( 'info', sprintf( 'Connected to Mercaria (connection %s).', (string) $result['connectionId'] ) );
-		$this->redirect( $success_code );
+		Mercaria_WC_Logger::log( 'info', 'Connection test succeeded.' );
+		$this->redirect( 'test_ok' );
 	}
 
 	/**
-	 * Handle the Disconnect action.
+	 * Handle the Disconnect action: clear the stored credential + connection id.
 	 *
 	 * @return void
 	 */
 	public function handle_disconnect() {
 		$this->authorize( 'mercaria_wc_disconnect' );
+
+		$plugin   = Mercaria_WC_Plugin::instance();
+		$settings = $plugin->get_settings();
+		$settings['connection_id'] = '';
+		$settings['channel_key']   = '';
+		update_option( Mercaria_WC_Plugin::SETTINGS_OPTION, $settings, false );
 		delete_option( Mercaria_WC_Plugin::CONNECTION_OPTION );
+
 		Mercaria_WC_Logger::log( 'info', 'Disconnected from Mercaria.' );
 		$this->redirect( 'disconnected' );
 	}
@@ -533,14 +527,13 @@ class Mercaria_WC_Settings {
 		}
 
 		$map = array(
-			'connected'      => array( 'success', __( 'Connected to Mercaria.', 'mercaria-woocommerce' ) ),
 			'test_ok'        => array( 'success', __( 'Connection test succeeded.', 'mercaria-woocommerce' ) ),
 			'disconnected'   => array( 'success', __( 'Disconnected from Mercaria.', 'mercaria-woocommerce' ) ),
 			'sync_started'   => array( 'success', __( 'Full catalog sync started. Progress appears above.', 'mercaria-woocommerce' ) ),
 			'log_cleared'    => array( 'success', __( 'Activity log cleared.', 'mercaria-woocommerce' ) ),
-			'not_configured' => array( 'error', __( 'Enter the API base URL, store id and access token first.', 'mercaria-woocommerce' ) ),
-			'not_connected'  => array( 'error', __( 'Connect to Mercaria before syncing.', 'mercaria-woocommerce' ) ),
-			'connect_failed' => array( 'error', __( 'Could not connect to Mercaria.', 'mercaria-woocommerce' ) ),
+			'not_configured' => array( 'error', __( 'Enter the API base URL, connection id and Channel API Key first.', 'mercaria-woocommerce' ) ),
+			'not_connected'  => array( 'error', __( 'Configure the connection before syncing.', 'mercaria-woocommerce' ) ),
+			'test_failed'    => array( 'error', __( 'Connection test failed.', 'mercaria-woocommerce' ) ),
 		);
 
 		if ( ! isset( $map[ $code ] ) ) {

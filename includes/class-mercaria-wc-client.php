@@ -2,9 +2,12 @@
 /**
  * HTTP client for the Mercaria channel ingestion API.
  *
- * All requests are authenticated with a store-scoped Oxy access token
- * (`Authorization: Bearer <token>`). Transient failures (network errors,
- * HTTP 429 and 5xx) are retried with exponential backoff.
+ * All requests are authenticated with a long-lived, store-scoped Channel API Key
+ * (`Authorization: Bearer mck_...`) minted in the Mercaria dashboard. Unlike an
+ * Oxy access token the key never expires, so the plugin keeps working without the
+ * merchant re-pasting a credential. Pushes go to the token-free ingest surface
+ * `POST /channels/ingest/{connectionId}/{products|inventory}`. Transient failures
+ * (network errors, HTTP 429 and 5xx) are retried with exponential backoff.
  *
  * @package Mercaria_WooCommerce
  */
@@ -29,71 +32,71 @@ class Mercaria_WC_Client {
 	private $base_url;
 
 	/**
-	 * Mercaria store id.
-	 *
-	 * @var string
-	 */
-	private $store_id;
-
-	/**
-	 * Store-scoped Oxy access token.
-	 *
-	 * @var string
-	 */
-	private $token;
-
-	/**
-	 * Channel connection id returned by connect-push (may be empty before connecting).
+	 * Channel connection id (from the Mercaria dashboard) the pushes target.
 	 *
 	 * @var string
 	 */
 	private $connection_id;
 
 	/**
+	 * Long-lived Channel API Key (`mck_...`).
+	 *
+	 * @var string
+	 */
+	private $key;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param string $base_url      Mercaria API base URL.
-	 * @param string $store_id      Mercaria store id.
-	 * @param string $token         Store-scoped access token.
-	 * @param string $connection_id Channel connection id (optional).
+	 * @param string $connection_id Channel connection id.
+	 * @param string $key           Channel API Key (`mck_...`).
 	 */
-	public function __construct( $base_url, $store_id, $token, $connection_id = '' ) {
+	public function __construct( $base_url, $connection_id, $key ) {
 		$this->base_url      = untrailingslashit( $base_url );
-		$this->store_id      = (string) $store_id;
-		$this->token         = (string) $token;
 		$this->connection_id = (string) $connection_id;
+		$this->key           = (string) $key;
 	}
 
 	/**
-	 * Establish (or refresh) the push connection for this shop.
+	 * Verify the credentials by making a harmless, side-effect-free ingest.
 	 *
-	 * POST /admin/stores/{storeId}/channels/woocommerce/connect-push
+	 * Posts a single inventory item whose external id maps to no listing, so the
+	 * API returns `skipped` (no catalog change) with HTTP 200. A 401 means the key
+	 * is wrong/revoked; a 403/404/400 means the connection id doesn't belong to
+	 * the key's store or isn't a push-in channel.
 	 *
-	 * @param string $shop_domain The WordPress site host (e.g. shop.example.com).
-	 * @return array<string, mixed>|WP_Error Decoded response ({ connectionId, storeId }) or error.
+	 * @return true|WP_Error True on success, WP_Error otherwise.
 	 */
-	public function connect_push( $shop_domain ) {
-		$path     = sprintf( '/admin/stores/%s/channels/woocommerce/connect-push', rawurlencode( $this->store_id ) );
-		$response = $this->request( 'POST', $path, array( 'shopDomain' => $shop_domain ) );
-
-		if ( is_wp_error( $response ) ) {
-			return $response;
+	public function test_connection() {
+		if ( '' === $this->connection_id ) {
+			return new WP_Error( 'mercaria_no_connection', __( 'Enter the connection id first.', 'mercaria-woocommerce' ) );
 		}
 
-		if ( empty( $response['connectionId'] ) ) {
-			return new WP_Error(
-				'mercaria_connect',
-				__( 'Mercaria did not return a connection id. Check the store id and token.', 'mercaria-woocommerce' )
-			);
+		$result = $this->request(
+			'POST',
+			$this->ingest_path( 'inventory' ),
+			array(
+				'items' => array(
+					array(
+						'externalId' => '__mercaria_connection_test__',
+						'available'  => 0,
+					),
+				),
+			)
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
 
-		return $response;
+		return true;
 	}
 
 	/**
 	 * Push a batch of products to Mercaria.
 	 *
-	 * POST /admin/stores/{storeId}/channels/{connectionId}/ingest/products
+	 * POST /channels/ingest/{connectionId}/products
 	 *
 	 * @param array<int, array<string, mixed>> $products Batch of IngestProduct arrays.
 	 * @return array<string, mixed>|WP_Error Decoded response ({ results }) or error.
@@ -103,19 +106,13 @@ class Mercaria_WC_Client {
 			return new WP_Error( 'mercaria_no_connection', __( 'Not connected to Mercaria yet.', 'mercaria-woocommerce' ) );
 		}
 
-		$path = sprintf(
-			'/admin/stores/%s/channels/%s/ingest/products',
-			rawurlencode( $this->store_id ),
-			rawurlencode( $this->connection_id )
-		);
-
-		return $this->request( 'POST', $path, array( 'products' => array_values( $products ) ) );
+		return $this->request( 'POST', $this->ingest_path( 'products' ), array( 'products' => array_values( $products ) ) );
 	}
 
 	/**
 	 * Push a batch of inventory levels to Mercaria.
 	 *
-	 * POST /admin/stores/{storeId}/channels/{connectionId}/ingest/inventory
+	 * POST /channels/ingest/{connectionId}/inventory
 	 *
 	 * @param array<int, array<string, mixed>> $items Batch of inventory items.
 	 * @return array<string, mixed>|WP_Error Decoded response or error.
@@ -125,13 +122,21 @@ class Mercaria_WC_Client {
 			return new WP_Error( 'mercaria_no_connection', __( 'Not connected to Mercaria yet.', 'mercaria-woocommerce' ) );
 		}
 
-		$path = sprintf(
-			'/admin/stores/%s/channels/%s/ingest/inventory',
-			rawurlencode( $this->store_id ),
-			rawurlencode( $this->connection_id )
-		);
+		return $this->request( 'POST', $this->ingest_path( 'inventory' ), array( 'items' => array_values( $items ) ) );
+	}
 
-		return $this->request( 'POST', $path, array( 'items' => array_values( $items ) ) );
+	/**
+	 * Build a token-free ingest path for the configured connection.
+	 *
+	 * @param string $resource `products` or `inventory`.
+	 * @return string
+	 */
+	private function ingest_path( $resource ) {
+		return sprintf(
+			'/channels/ingest/%s/%s',
+			rawurlencode( $this->connection_id ),
+			$resource
+		);
 	}
 
 	/**
@@ -154,7 +159,7 @@ class Mercaria_WC_Client {
 			'timeout'     => 30,
 			'redirection' => 0,
 			'headers'     => array(
-				'Authorization' => 'Bearer ' . $this->token,
+				'Authorization' => 'Bearer ' . $this->key,
 				'Content-Type'  => 'application/json',
 				'Accept'        => 'application/json',
 				'User-Agent'    => 'Mercaria-WooCommerce/' . MERCARIA_WC_VERSION,
@@ -219,12 +224,12 @@ class Mercaria_WC_Client {
 		$body    = wp_remote_retrieve_body( $response );
 		$decoded = json_decode( $body, true );
 
-		if ( is_array( $decoded ) && isset( $decoded['error'] ) ) {
-			return is_string( $decoded['error'] ) ? $decoded['error'] : wp_json_encode( $decoded['error'] );
-		}
-
 		if ( is_array( $decoded ) && isset( $decoded['message'] ) && is_string( $decoded['message'] ) ) {
 			return $decoded['message'];
+		}
+
+		if ( is_array( $decoded ) && isset( $decoded['error'] ) ) {
+			return is_string( $decoded['error'] ) ? $decoded['error'] : wp_json_encode( $decoded['error'] );
 		}
 
 		return wp_strip_all_tags( (string) $body );

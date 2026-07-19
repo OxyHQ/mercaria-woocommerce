@@ -11,10 +11,11 @@
 
 A WordPress plugin a merchant installs on their WooCommerce site. It connects to
 their Mercaria marketplace store and **pushes** their catalog and stock into
-Mercaria (**WooCommerce → Mercaria, outbound only**). It is the "official"
-counterpart to Mercaria's built-in WooCommerce channel connector: instead of the
-merchant pasting API keys into the Mercaria dashboard, this plugin performs the
-push handshake and sends products/inventory to Mercaria's channel ingestion API.
+Mercaria (**WooCommerce → Mercaria, outbound only**). It authenticates with a
+**long-lived, store-scoped Channel API Key** (`mck_…`) the merchant generates in
+the Mercaria dashboard — NOT a short-lived Oxy access token. The merchant pastes
+the channel **connection id** and the **key** into the plugin; there is no
+push-handshake step (the connection is created dashboard-side).
 
 See the plan (`~/.claude/plans/quiero-implementar-plugins-conectores-o-hazy-chipmunk.md`,
 §Arquitectura C + Fase 5, decision #9) for the full connector vision.
@@ -29,8 +30,8 @@ See the plan (`~/.claude/plans/quiero-implementar-plugins-conectores-o-hazy-chip
   escaped (`esc_html`, `esc_attr`, `esc_url`).
 - Full i18n: text domain `mercaria-woocommerce`, loaded on `init`, `.pot` in
   `languages/`.
-- No secrets in code. The merchant's access token is entered in settings and
-  stored in `wp_options` (never echoed back).
+- No secrets in code. The merchant's Channel API Key is entered in settings and
+  stored in `wp_options` (never echoed back; the field is blank-keeps-existing).
 - HPOS-compatible (declares `custom_order_tables` compatibility; the plugin does
   not touch order storage).
 - Class autoloading via a small `spl_autoload_register` shim
@@ -49,10 +50,11 @@ includes/
                                              cron hook names, get_client(),
                                              is_connected(), activate/deactivate.
   class-mercaria-wc-settings.php             Settings → Mercaria admin page;
-                                             Connect/Test/Disconnect/Sync/Clear
-                                             actions (nonce + cap guarded).
+                                             Test/Disconnect/Sync/Clear actions
+                                             (nonce + cap guarded).
   class-mercaria-wc-client.php               HTTP client (wp_remote_request,
-                                             Bearer auth, retry/backoff).
+                                             Channel API Key Bearer auth,
+                                             retry/backoff, test_connection()).
   class-mercaria-wc-product-mapper.php       WC_Product → IngestProduct + minor
                                              units + inventory items.
   class-mercaria-wc-sync.php                 Hooks → debounced queue → batched
@@ -63,20 +65,28 @@ languages/mercaria-woocommerce.pot           i18n template.
 
 ## Mercaria channel ingestion API contract (build to this exactly)
 
-The Mercaria backend (built in parallel, Fase 5) exposes:
+The Mercaria backend exposes a **token-free** ingest surface the plugin reaches
+with only a Channel API Key (no `storeId` in the path — the key carries the
+store):
 
 - Base URL: merchant-configured (e.g. `https://api.mercaria.co`).
-- Auth: `Authorization: Bearer <token>` — a store-scoped Oxy access token
-  (`channels:write`). v1: merchant pastes it in settings.
-- **Connect:** `POST /admin/stores/{storeId}/channels/woocommerce/connect-push`
-  body `{ shopDomain }` → `{ connectionId, storeId }`. Treated as
-  idempotent/upsert per store+provider+shopDomain (Test re-runs it).
+- Auth: `Authorization: Bearer mck_…` — a long-lived, store-scoped **Channel API
+  Key** (`channels:write`). Also accepted as `X-Mercaria-Channel-Key`. The key
+  is generated in the Mercaria dashboard and pasted into settings; it never
+  expires and is revocable per-key server-side.
+- Connection id: also copied from the dashboard channel; the plugin stores it in
+  settings and posts to it directly. There is **no** connect/handshake call from
+  the plugin (the push-in connection is created dashboard-side).
 - **Push products:**
-  `POST /admin/stores/{storeId}/channels/{connectionId}/ingest/products`
+  `POST /channels/ingest/{connectionId}/products`
   body `{ products: IngestProduct[] }` (batched at 100).
 - **Push stock:**
-  `POST /admin/stores/{storeId}/channels/{connectionId}/ingest/inventory`
+  `POST /channels/ingest/{connectionId}/inventory`
   body `{ items: { externalId, sku?, available:int }[] }`.
+- **Test connection:** posts a single inventory item with a sentinel
+  `externalId` that maps to no listing → `skipped` (HTTP 200, no side effect on
+  the catalog). A 401 = bad/revoked key; 400/403/404 = the connection id isn't a
+  push-in channel of the key's store.
 
 ### `IngestProduct` shape produced by the mapper
 
@@ -130,17 +140,17 @@ otherwise 2. Example: shop in EUR, price `12.50` → `{ amount: 1250, currency: 
 
 ## Deferred / handoff (needs the Mercaria backend + Oxy IdP)
 
-- **OAuth "Connect with Mercaria":** v1 uses a **pasted store-scoped token** as
-  the auth seam. The planned follow-up is an OAuth authorization-code flow
-  against the Oxy IdP (auth.oxy.so) with a registered "Mercaria WooCommerce"
-  client, where the merchant signs in, picks their Mercaria store, and grants
-  `channels:write` — the plugin then receives the store-scoped token with no
-  manual paste. When that lands, replace the token field + Connect button with
-  the OAuth redirect/callback; the ingestion calls are unchanged.
-- **Backend ingestion endpoints** (`connect-push`, `ingest/products`,
-  `ingest/inventory`) are implemented by a parallel agent in the Mercaria
-  monorepo (`packages/backend`), idempotent by `{provider, externalId}` and
-  respecting `overriddenFields` on re-sync.
+- **Auth is solved by the Channel API Key** — a long-lived, store-scoped,
+  revocable credential. The merchant pastes the connection id + key once; nothing
+  expires. A future "Connect with Mercaria" convenience flow (auto-provision the
+  connection + mint a key from inside the plugin via an OAuth sign-in) could
+  remove the copy/paste, but is NOT required for the plugin to keep working — the
+  ingest calls are unchanged regardless.
+- **Backend ingestion endpoints** — the token-authed admin path
+  (`/admin/stores/{storeId}/channels/{connectionId}/ingest/*`) AND the
+  key-authed path (`/channels/ingest/{connectionId}/*`) share the same idempotent
+  ingest service (upsert by `{provider, externalId}`, respecting
+  `overriddenFields` on re-sync). The plugin uses the key-authed path.
 - **Not yet pushed:** orders/refunds, shipping (Moovo owns shipping), product
   deletes (no delete endpoint in the contract yet — archival on delete is a
   follow-up).

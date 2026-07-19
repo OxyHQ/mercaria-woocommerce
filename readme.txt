@@ -25,10 +25,10 @@ Mercaria, outbound).
 * Prices are sent in your shop currency (WooCommerce &rarr; General &rarr;
   Currency) as integer minor units.
 
-This is the official outbound WooCommerce connector for Mercaria. It is the
-counterpart to Mercaria's built-in WooCommerce channel: instead of pasting API
-keys into Mercaria, you install this plugin and it pushes your catalog to
-Mercaria's channel ingestion API.
+This is the official outbound WooCommerce connector for Mercaria. You install
+this plugin and it pushes your catalog to Mercaria's channel ingestion API,
+authenticated with a long-lived Channel API Key you generate in the Mercaria
+dashboard (no expiring login tokens to keep re-pasting).
 
 == Installation ==
 
@@ -36,19 +36,30 @@ Mercaria's channel ingestion API.
    from the Plugins screen.
 2. Activate it. WooCommerce must be installed and active.
 3. Go to **Settings &rarr; Mercaria**.
-4. Enter the Mercaria **API base URL** (e.g. `https://api.mercaria.co`), your
-   **store id**, and a store-scoped **access token**, then click **Save
-   settings**.
-5. Click **Connect**. Once connected, click **Sync all products now** to push
-   your existing catalog.
+4. In the Mercaria dashboard, open your WooCommerce channel's settings, copy its
+   **Connection id** and generate a **Channel API Key**.
+5. Back in WordPress, enter the Mercaria **API base URL**
+   (e.g. `https://api.mercaria.co`), the **Connection id**, and the **Channel API
+   Key**, then click **Save settings**.
+6. Click **Test connection**. Once it succeeds, click **Sync all products now**
+   to push your existing catalog.
 
 == Frequently Asked Questions ==
 
-= Where do I get the access token? =
+= Where do I get the connection id and Channel API Key? =
 
-In this version you paste a store-scoped Mercaria access token (with the
-`channels:write` scope) into the settings page. A one-click "Connect with
-Mercaria" sign-in flow (OAuth) is a planned follow-up.
+In the Mercaria dashboard, open your store's WooCommerce channel settings. It
+shows the channel's **Connection id** and an **API keys** area where you generate
+a **Channel API Key** (`mck_…`). The key is shown once — copy it immediately and
+paste it, with the connection id, into this plugin's settings.
+
+= What is a Channel API Key? =
+
+It is a long-lived, store-scoped credential that only authorizes catalog
+ingestion. Unlike a login/access token it does **not** expire, so the plugin
+keeps working without you re-pasting anything. If a key is ever exposed, revoke
+it in the Mercaria dashboard and generate a new one — revoking takes effect
+immediately.
 
 = Which currency are prices sent in? =
 
@@ -72,6 +83,9 @@ not pushed by this version.
 = 1.0.0 =
 * Initial release: product and inventory push to the Mercaria channel
   ingestion API, automatic hooks, chunked backfill, and daily reconciliation.
+* Authentication uses a long-lived, store-scoped Channel API Key (`mck_…`)
+  generated in the Mercaria dashboard and posted to the token-free
+  `/channels/ingest/{connectionId}/…` endpoints — no expiring access tokens.
 
 == Upgrade Notice ==
 
