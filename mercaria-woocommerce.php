@@ -3,7 +3,7 @@
  * Plugin Name:       Mercaria for WooCommerce
  * Plugin URI:        https://mercaria.co
  * Description:       Push your WooCommerce catalog and stock into your Mercaria marketplace store. Products, variations and inventory are synced automatically to Mercaria's channel ingestion API.
- * Version:           1.0.0
+ * Version:           1.0.1
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Author:            Oxy
@@ -20,7 +20,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MERCARIA_WC_VERSION', '1.0.0' );
+define( 'MERCARIA_WC_VERSION', '1.0.1' );
 define( 'MERCARIA_WC_PLUGIN_FILE', __FILE__ );
 define( 'MERCARIA_WC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'MERCARIA_WC_URL', plugin_dir_url( __FILE__ ) );

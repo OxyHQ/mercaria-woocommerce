@@ -4,7 +4,7 @@ Tags: woocommerce, marketplace, mercaria, sync, catalog
 Requires at least: 6.4
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,6 +79,12 @@ SKUs, barcodes/GTIN, prices, and stock levels. Shipping, orders and refunds are
 not pushed by this version.
 
 == Changelog ==
+
+= 1.0.1 =
+* Fixed: `externalUpdatedAt` was sent as an ISO 8601 timestamp with a UTC
+  OFFSET, which Mercaria's ingest API rejects, so every product push failed
+  with HTTP 400 and no catalog reached Mercaria. It is now sent as a
+  `Z`-suffixed UTC timestamp. Inventory pushes were unaffected.
 
 = 1.0.0 =
 * Initial release: product and inventory push to the Mercaria channel

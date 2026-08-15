@@ -102,6 +102,23 @@ class Mercaria_WC_Product_Mapper {
 	}
 
 	/**
+	 * Format an instant as the UTC, `Z`-suffixed timestamp the ingest API accepts.
+	 *
+	 * `DateTime::format( 'c' )` renders an OFFSET (`2026-08-15T10:23:45+02:00`,
+	 * and `+00:00` even on a UTC site) and Mercaria's `externalUpdatedAt` is
+	 * validated with a Z-only ISO 8601 rule, so an offset is rejected with
+	 * HTTP 400 and the whole batch is refused. `getTimestamp()` is the true UTC
+	 * epoch — NOT `getOffsetTimestamp()`, which WC_DateTime shifts by the store's
+	 * offset for display and which would report the wrong instant here.
+	 *
+	 * @param WC_DateTime $date Date to format.
+	 * @return string
+	 */
+	private static function utc_timestamp( $date ) {
+		return gmdate( 'Y-m-d\TH:i:s\Z', $date->getTimestamp() );
+	}
+
+	/**
 	 * Map a WooCommerce product to an IngestProduct array.
 	 *
 	 * @param WC_Product $product Product to map.
@@ -125,7 +142,7 @@ class Mercaria_WC_Product_Mapper {
 
 		$modified = $product->get_date_modified();
 		if ( $modified instanceof WC_DateTime ) {
-			$ingest['externalUpdatedAt'] = $modified->format( 'c' );
+			$ingest['externalUpdatedAt'] = self::utc_timestamp( $modified );
 		}
 
 		$description = $product->get_description();
