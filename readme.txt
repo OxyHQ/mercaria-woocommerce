@@ -4,7 +4,7 @@ Tags: woocommerce, marketplace, mercaria, sync, catalog
 Requires at least: 6.4
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,6 +79,14 @@ SKUs, barcodes/GTIN, prices, and stock levels. Shipping, orders and refunds are
 not pushed by this version.
 
 == Changelog ==
+
+= 1.0.2 =
+* Security fix: **Disconnect** reported success but left the Channel API Key in
+  the database. It cleared the connection id, so the plugin behaved as though it
+  were disconnected while the long-lived credential stayed on disk — exactly the
+  wrong outcome for somebody disconnecting because a key may have leaked. The
+  key is now genuinely removed. If you pressed Disconnect on an earlier version,
+  revoke that key in the Mercaria dashboard as well.
 
 = 1.0.1 =
 * Fixed: `externalUpdatedAt` was sent as an ISO 8601 timestamp with a UTC

@@ -434,16 +434,35 @@ class Mercaria_WC_Settings {
 	/**
 	 * Handle the Disconnect action: clear the stored credential + connection id.
 	 *
+	 * The option is DELETED and re-created rather than updated in place, and that
+	 * is load-bearing. `register_setting()` hooks {@see sanitize_settings} onto
+	 * `sanitize_option_mercaria_wc_settings`, which WordPress applies to
+	 * `update_option()` as well as to the form. That callback keeps the stored key
+	 * when the submitted one is blank — correct for the form, where a blank field
+	 * means "leave it alone", and fatal here, where a blank field is the whole
+	 * point: an in-place update reported success and left the Channel API Key in
+	 * `wp_options`. Deleting first makes the sanitizer's "existing" value empty,
+	 * so the blank survives. The API base URL is carried over deliberately: it is
+	 * not a credential and re-typing it is not part of disconnecting.
+	 *
 	 * @return void
 	 */
 	public function handle_disconnect() {
 		$this->authorize( 'mercaria_wc_disconnect' );
 
-		$plugin   = Mercaria_WC_Plugin::instance();
-		$settings = $plugin->get_settings();
-		$settings['connection_id'] = '';
-		$settings['channel_key']   = '';
-		update_option( Mercaria_WC_Plugin::SETTINGS_OPTION, $settings, false );
+		$settings = Mercaria_WC_Plugin::instance()->get_settings();
+
+		delete_option( Mercaria_WC_Plugin::SETTINGS_OPTION );
+		add_option(
+			Mercaria_WC_Plugin::SETTINGS_OPTION,
+			array(
+				'api_base_url'  => $settings['api_base_url'],
+				'connection_id' => '',
+				'channel_key'   => '',
+			),
+			'',
+			'no'
+		);
 		delete_option( Mercaria_WC_Plugin::CONNECTION_OPTION );
 
 		Mercaria_WC_Logger::log( 'info', 'Disconnected from Mercaria.' );
